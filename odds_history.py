@@ -2,50 +2,47 @@ from market_snapshot import MarketSnapshot
 
 
 class OddsHistory:
+    """Manage a fixture's snapshots in insertion order, without a fixed capacity."""
 
     def __init__(self, fixture):
         self.__fixture = fixture
-        self.__first = None
-        self.__second = None
+        self.__snapshots = []
+
+    def get_snapshots(self):
+        """Return a copy so callers cannot add or remove stored snapshots directly."""
+        return self.__snapshots.copy()
+
+    snapshots = property(get_snapshots)
 
     def add_snapshot(self, snapshot):
         if not isinstance(snapshot, MarketSnapshot):
             return False
         if snapshot.fixture.fixture_id != self.__fixture.fixture_id:
             return False
-        if snapshot == self.__first or snapshot == self.__second:
+        if snapshot in self.__snapshots:
             return False
-        if self.__first is None:
-            self.__first = snapshot
-            return True
-        if self.__second is None:
-            self.__second = snapshot
-            return True
-        return False
+        self.__snapshots.append(snapshot)
+        return True
 
     def remove_snapshot(self, snapshot):
-        if snapshot is None:
+        if snapshot not in self.__snapshots:
             return False
-        if snapshot == self.__first:
-            self.__first = None
-            return True
-        if snapshot == self.__second:
-            self.__second = None
-            return True
-        return False
+        self.__snapshots.remove(snapshot)
+        return True
 
-    def __matches(self, snapshot, bookmaker, timestamp):
-        return (snapshot is not None
-                and snapshot.bookmaker == bookmaker
-                and snapshot.recorded_at <= timestamp)
+    def snapshots_at(self, bookmaker, timestamp):
+        """Filter records for a bookmaker, excluding records after the requested time."""
+        return [
+            snapshot for snapshot in self.__snapshots
+            if snapshot.bookmaker == bookmaker
+            and snapshot.recorded_at <= timestamp
+        ]
 
     def latest_at(self, bookmaker, timestamp):
         latest = None
-        if self.__matches(self.__first, bookmaker, timestamp):
-            latest = self.__first
-        if self.__matches(self.__second, bookmaker, timestamp):
-            if latest is None or self.__second.recorded_at > latest.recorded_at:
-                latest = self.__second
+        for snapshot in self.snapshots_at(bookmaker, timestamp):
+            if latest is None or snapshot.recorded_at > latest.recorded_at:
+                latest = snapshot
         return latest
 
     def price_change(self, bookmaker, outcome, start, end):
@@ -65,9 +62,4 @@ class OddsHistory:
         return last_quote.decimal_odds - first_quote.decimal_odds
 
     def __str__(self):
-        count = 0
-        if self.__first is not None:
-            count += 1
-        if self.__second is not None:
-            count += 1
-        return f"History for {self.__fixture}: {count}/2 snapshots"
+        return f"History for {self.__fixture}: {len(self.__snapshots)} snapshots"

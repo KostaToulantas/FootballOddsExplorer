@@ -8,9 +8,11 @@ class MarketSnapshot:
         self.__fixture = fixture
         self.__bookmaker = bookmaker
         self.__recorded_at = recorded_at
-        self.__home = OddsQuote("home", home)
-        self.__draw = OddsQuote("draw", draw)
-        self.__away = OddsQuote("away", away)
+        self.__quotes = {
+            "home": OddsQuote("home", home),
+            "draw": OddsQuote("draw", draw),
+            "away": OddsQuote("away", away),
+        }
 
     def get_fixture(self):
         return self.__fixture
@@ -28,27 +30,26 @@ class MarketSnapshot:
     recorded_at = property(get_recorded_at)
 
     def get_quote(self, outcome):
-        if outcome == "home":
-            return self.__home
-        if outcome == "draw":
-            return self.__draw
-        if outcome == "away":
-            return self.__away
-        return None
+        """Look up an outcome by its meaningful key; unknown outcomes return None."""
+        return self.__quotes.get(outcome)
+
+    def get_quotes(self):
+        """Return a copy so callers cannot replace or remove the stored quotes."""
+        return self.__quotes.copy()
+
+    quotes = property(get_quotes)
 
     def is_complete(self):
-        return (self.__home.decimal_odds is not None
-                and self.__draw.decimal_odds is not None
-                and self.__away.decimal_odds is not None)
+        return all(quote.decimal_odds is not None
+                   for quote in self.__quotes.values())
 
     def calculate_overround(self):
         """Return the probability total above 1, e.g. 0.05 means 5%."""
         if not self.is_complete():
             return None
-        return (self.__home.implied_probability()
-                + self.__draw.implied_probability()
-                + self.__away.implied_probability() - 1)
+        return sum(quote.implied_probability()
+                   for quote in self.__quotes.values()) - 1
 
     def __str__(self):
-        return (f"{self.__bookmaker}, {self.__recorded_at}: "
-                f"{self.__home}, {self.__draw}, {self.__away}")
+        quotes = ", ".join(str(quote) for quote in self.__quotes.values())
+        return f"{self.__bookmaker}, {self.__recorded_at}: {quotes}"

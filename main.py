@@ -17,7 +17,7 @@ def show_best(comparator, first, second, outcome, as_of):
 
 
 def main():
-    print("Football Odds Explorer - foundation demonstration")
+    print("Football Odds Explorer - data structures demonstration")
     print("Fictional prices and fixture. All dates and times are shown in UTC.\n")
     kickoff = datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)
     earlier_time = datetime(2026, 9, 25, 18, 50, tzinfo=timezone.utc)
@@ -46,20 +46,32 @@ def main():
     print(
         f"Home implied probability: {first.get_quote('home').implied_probability():.2%}")
     print(f"Market overround: {first.calculate_overround():.2%}")
+    print("Quotes accessed by outcome:")
+    for outcome, quote in first.quotes.items():
+        print(f"  {outcome}: {quote.decimal_odds:.2f}")
 
     history = OddsHistory(fixture)
     print("\nAdd earlier snapshot:", history.add_snapshot(earlier))
     print("Add later snapshot:", history.add_snapshot(first))
     print("Reject duplicate:", history.add_snapshot(first))
-    print("Reject third snapshot (foundation capacity):",
-          history.add_snapshot(second))
+    print("Add third snapshot:", history.add_snapshot(second))
     print(history)
+    print(f"Snapshots for {bookmaker_a} at {comparison_time}:")
+    for snapshot in history.snapshots_at(bookmaker_a, comparison_time):
+        print(" ", snapshot)
     print(f"Latest at {comparison_time}:",
           history.latest_at(bookmaker_a, comparison_time))
     print(
         f"Home price change: {history.price_change(bookmaker_a, 'home', earlier_time, comparison_time):+.2f}")
     print("Remove earlier snapshot:", history.remove_snapshot(earlier))
     print(history)
+    history_copy = history.snapshots
+    history_copy.clear()
+    quotes_copy = first.quotes
+    quotes_copy.clear()
+    print("After clearing an external history copy:", history)
+    print("After clearing an external quotes copy, market complete:",
+          first.is_complete())
 
     comparator = OddsComparator(10)
     print(f"\nComparison at {comparison_time}:")
