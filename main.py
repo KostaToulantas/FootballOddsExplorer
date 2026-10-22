@@ -49,6 +49,8 @@ def main():
     print("Quotes accessed by outcome:")
     for outcome, quote in first.quotes.items():
         print(f"  {outcome}: {quote.decimal_odds:.2f}")
+    favourite = first.favourite_outcome()
+    print("Favourite outcome:", first.get_quote(favourite))
 
     history = OddsHistory(fixture)
     print("\nAdd earlier snapshot:", history.add_snapshot(earlier))
@@ -56,6 +58,10 @@ def main():
     print("Reject duplicate:", history.add_snapshot(first))
     print("Add third snapshot:", history.add_snapshot(second))
     print(history)
+    print("Earlier snapshot is stored:", history.has_snapshot(earlier))
+    print(f"All snapshots for {bookmaker_a}:")
+    for snapshot in history.filter_by_bookmaker(bookmaker_a):
+        print(" ", snapshot)
     print(f"Snapshots for {bookmaker_a} at {comparison_time}:")
     for snapshot in history.snapshots_at(bookmaker_a, comparison_time):
         print(" ", snapshot)
@@ -64,6 +70,7 @@ def main():
     print(
         f"Home price change: {history.price_change(bookmaker_a, 'home', earlier_time, comparison_time):+.2f}")
     print("Remove earlier snapshot:", history.remove_snapshot(earlier))
+    print("Earlier snapshot is still stored:", history.has_snapshot(earlier))
     print(history)
     history_copy = history.snapshots
     history_copy.clear()

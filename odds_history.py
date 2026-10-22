@@ -14,28 +14,38 @@ class OddsHistory:
 
     snapshots = property(get_snapshots)
 
+    def has_snapshot(self, snapshot):
+        """Check whether this snapshot object is already stored."""
+        return snapshot in self.__snapshots
+
     def add_snapshot(self, snapshot):
         if not isinstance(snapshot, MarketSnapshot):
             return False
         if snapshot.fixture.fixture_id != self.__fixture.fixture_id:
             return False
-        if snapshot in self.__snapshots:
+        if self.has_snapshot(snapshot):
             return False
         self.__snapshots.append(snapshot)
         return True
 
     def remove_snapshot(self, snapshot):
-        if snapshot not in self.__snapshots:
+        if not self.has_snapshot(snapshot):
             return False
         self.__snapshots.remove(snapshot)
         return True
 
-    def snapshots_at(self, bookmaker, timestamp):
-        """Filter records for a bookmaker, excluding records after the requested time."""
+    def filter_by_bookmaker(self, bookmaker):
+        """Find a bookmaker's records in insertion order, returning a new list."""
         return [
             snapshot for snapshot in self.__snapshots
             if snapshot.bookmaker == bookmaker
-            and snapshot.recorded_at <= timestamp
+        ]
+
+    def snapshots_at(self, bookmaker, timestamp):
+        """Filter records for a bookmaker, excluding records after the requested time."""
+        return [
+            snapshot for snapshot in self.filter_by_bookmaker(bookmaker)
+            if snapshot.recorded_at <= timestamp
         ]
 
     def latest_at(self, bookmaker, timestamp):

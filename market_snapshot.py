@@ -43,6 +43,21 @@ class MarketSnapshot:
         return all(quote.decimal_odds is not None
                    for quote in self.__quotes.values())
 
+    def favourite_outcome(self):
+        """Return the lowest-priced outcome, or None for an incomplete market.
+
+        Ties use dictionary order: home, draw, then away.
+        """
+        if not self.is_complete():
+            return None
+        favourite = None
+        lowest_odds = None
+        for outcome, quote in self.__quotes.items():
+            if lowest_odds is None or quote.decimal_odds < lowest_odds:
+                favourite = outcome
+                lowest_odds = quote.decimal_odds
+        return favourite
+
     def calculate_overround(self):
         """Return the probability total above 1, e.g. 0.05 means 5%."""
         if not self.is_complete():
