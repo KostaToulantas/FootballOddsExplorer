@@ -1,4 +1,11 @@
 from market_snapshot import MarketSnapshot
+from odds_exceptions import (
+    DuplicateSnapshotError,
+    FixtureMismatchError,
+    InvalidTimeRangeError,
+    SnapshotNotFoundError,
+    UnknownOutcomeError,
+)
 
 
 class OddsHistory:
@@ -19,18 +26,29 @@ class OddsHistory:
         return snapshot in self.__snapshots
 
     def add_snapshot(self, snapshot):
+        """Store a snapshot, rejecting another fixture or an already stored object."""
         if not isinstance(snapshot, MarketSnapshot):
             return False
         if snapshot.fixture.fixture_id != self.__fixture.fixture_id:
-            return False
+            raise FixtureMismatchError(
+                "add snapshot to history", self.__fixture.fixture_id,
+                snapshot.fixture.fixture_id
+            )
         if self.has_snapshot(snapshot):
-            return False
+            raise DuplicateSnapshotError(
+                self.__fixture.fixture_id, snapshot.bookmaker, snapshot.recorded_at
+            )
         self.__snapshots.append(snapshot)
         return True
 
     def remove_snapshot(self, snapshot):
-        if not self.has_snapshot(snapshot):
+        """Remove a stored snapshot, raising SnapshotNotFoundError if it is absent."""
+        if not isinstance(snapshot, MarketSnapshot):
             return False
+        if not self.has_snapshot(snapshot):
+            raise SnapshotNotFoundError(
+                self.__fixture.fixture_id, snapshot.bookmaker, snapshot.recorded_at
+            )
         self.__snapshots.remove(snapshot)
         return True
 
@@ -56,17 +74,20 @@ class OddsHistory:
         return latest
 
     def price_change(self, bookmaker, outcome, start, end):
-        """End price minus start price, using the latest records at each time."""
+        """Return end minus start price, rejecting reversed times or unknown keys.
+
+        Valid requests with missing records or unavailable prices return None.
+        """
         if start > end:
-            return None
+            raise InvalidTimeRangeError(start, end)
+        if not MarketSnapshot.is_supported_outcome(outcome):
+            raise UnknownOutcomeError(outcome)
         first = self.latest_at(bookmaker, start)
         last = self.latest_at(bookmaker, end)
         if first is None or last is None:
             return None
         first_quote = first.get_quote(outcome)
         last_quote = last.get_quote(outcome)
-        if first_quote is None or last_quote is None:
-            return None
         if first_quote.decimal_odds is None or last_quote.decimal_odds is None:
             return None
         return last_quote.decimal_odds - first_quote.decimal_odds

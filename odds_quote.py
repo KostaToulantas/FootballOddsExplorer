@@ -1,11 +1,14 @@
+from odds_exceptions import InvalidDecimalOddsError
+
+
 class OddsQuote:
-    """One recorded price. None marks an invalid price, without exceptions."""
+    """One recorded price. None marks an intentionally unavailable price."""
 
     def __init__(self, outcome, decimal_odds):
+        if decimal_odds is not None and not self.validate_odds(decimal_odds):
+            raise InvalidDecimalOddsError(outcome, decimal_odds)
         self.__outcome = outcome
-        self.__decimal_odds = None
-        if self.validate_odds(decimal_odds):
-            self.__decimal_odds = decimal_odds
+        self.__decimal_odds = decimal_odds
 
     def get_decimal_odds(self):
         return self.__decimal_odds

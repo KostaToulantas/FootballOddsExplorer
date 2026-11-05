@@ -1,3 +1,4 @@
+from odds_exceptions import UnknownOutcomeError
 from odds_quote import OddsQuote
 
 
@@ -29,9 +30,16 @@ class MarketSnapshot:
 
     recorded_at = property(get_recorded_at)
 
+    @staticmethod
+    def is_supported_outcome(outcome):
+        """Check whether an outcome belongs to the home/draw/away market."""
+        return outcome in ("home", "draw", "away")
+
     def get_quote(self, outcome):
-        """Look up an outcome by its meaningful key; unknown outcomes return None."""
-        return self.__quotes.get(outcome)
+        """Look up a quote, raising UnknownOutcomeError for an unsupported key."""
+        if not self.is_supported_outcome(outcome):
+            raise UnknownOutcomeError(outcome)
+        return self.__quotes[outcome]
 
     def get_quotes(self):
         """Return a copy so callers cannot replace or remove the stored quotes."""
