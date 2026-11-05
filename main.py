@@ -4,12 +4,13 @@ from bookmaker import Bookmaker
 from fixture import Fixture
 from market_snapshot import MarketSnapshot
 from odds_comparator import OddsComparator
+from odds_explorer import OddsExplorer
 from odds_history import OddsHistory
 from sample_odds_provider import SampleOddsProvider
 
 
-def show_best(comparator, first, second, outcome, as_of):
-    best = comparator.compare(first, second, outcome, as_of)
+def show_best(explorer, first, second, outcome, as_of):
+    best = explorer.compare(first, second, outcome, as_of)
     if best is None:
         print(f"{outcome}: no eligible comparison")
     else:
@@ -29,6 +30,9 @@ def main():
     fixture = Fixture("F001", "Liverpool", "Arsenal", kickoff)
     bookmaker_a = Bookmaker("A", "Sample Sports")
     bookmaker_b = Bookmaker("B", "Demo Markets")
+    history = OddsHistory(fixture)
+    comparator = OddsComparator(10)
+    explorer = OddsExplorer(history, comparator)
     print(fixture)
     print("Same bookmaker ID:", bookmaker_a == Bookmaker("A", "Sample Sports"))
 
@@ -43,10 +47,10 @@ def main():
 
     print("\nDICTIONARY: store quote objects under outcome names")
     print("Loading each snapshot populates its dictionary with three quotes.")
-    earlier = earlier_provider.load_snapshot()
-    first = first_provider.load_snapshot()
-    second = second_provider.load_snapshot()
-    third = third_provider.load_snapshot()
+    earlier = explorer.load_snapshot(earlier_provider)
+    first = explorer.load_snapshot(first_provider)
+    second = explorer.load_snapshot(second_provider)
+    third = explorer.load_snapshot(third_provider)
     print("Source:", first_provider)
     for snapshot in [first, second]:
         print(f"\n{snapshot.bookmaker}: {len(snapshot.quotes)} outcome keys")
@@ -57,22 +61,25 @@ def main():
         print(f"Market overround: {snapshot.calculate_overround():.2%}")
 
     print("\nLook up the home key:", first.get_quote("home"))
-    print("Look up an unknown key:", first.get_quote("unknown"))
+    print("Look up an unknown key:", explorer.get_quote(first, "unknown"))
     print(
         f"Home implied probability: {first.get_quote('home').implied_probability():.2%}")
-    incomplete = MarketSnapshot(
+    invalid_provider = SampleOddsProvider(
         fixture, bookmaker_a, first_time, 0.5, 3.40, 3.50)
-    print("Invalid home quote:", incomplete.get_quote("home"))
-    print("Market with invalid home odds is complete:", incomplete.is_complete())
+    invalid_snapshot = explorer.load_snapshot(invalid_provider)
+    print("Invalid snapshot was loaded:", invalid_snapshot is not None)
+    incomplete = MarketSnapshot(
+        fixture, bookmaker_a, first_time, None, 3.40, 3.50)
+    print("Unavailable home quote:", incomplete.get_quote("home"))
+    print("Market with unavailable home odds is complete:", incomplete.is_complete())
     print("Favourite in that incomplete market:", incomplete.favourite_outcome())
 
     print("\nLIST: store snapshot objects in insertion order")
-    history = OddsHistory(fixture)
     for snapshot in [earlier, first, second, third]:
-        added = history.add_snapshot(snapshot)
+        added = explorer.add_snapshot(snapshot)
         print(f"Add {snapshot.bookmaker} at {snapshot.recorded_at}: {added}")
     print("Add the same snapshot object again (rejected):",
-          history.add_snapshot(first))
+          explorer.add_snapshot(first))
     print(history)
     print("All stored snapshots, in insertion order:")
     for snapshot in history.snapshots:
@@ -89,8 +96,8 @@ def main():
           history.latest_at(bookmaker_a, comparison_time))
     print("The 19:20 record is excluded because it is after the requested time.")
     print(
-        f"Home price change: {history.price_change(bookmaker_a, 'home', earlier_time, comparison_time):+.2f}")
-    print("Remove earlier snapshot:", history.remove_snapshot(earlier))
+        f"Home price change: {explorer.price_change(bookmaker_a, 'home', earlier_time, comparison_time):+.2f}")
+    print("Remove earlier snapshot:", explorer.remove_snapshot(earlier))
     print("Earlier snapshot is still stored:", history.has_snapshot(earlier))
     print(history)
 
@@ -103,17 +110,16 @@ def main():
     print("After clearing an external quotes copy, market complete:",
           first.is_complete())
 
-    comparator = OddsComparator(10)
     print(f"\nCOMPARISON: best available odds at {comparison_time}")
-    show_best(comparator, first, second, "home", comparison_time)
-    show_best(comparator, first, second, "draw", comparison_time)
-    show_best(comparator, first, second, "away", comparison_time)
-    print("At kickoff:", comparator.compare(first, second, "home", kickoff))
+    show_best(explorer, first, second, "home", comparison_time)
+    show_best(explorer, first, second, "draw", comparison_time)
+    show_best(explorer, first, second, "away", comparison_time)
+    print("At kickoff:", explorer.compare(first, second, "home", kickoff))
     print("Future quote eligible:", comparator.is_eligible(
         second, before_second_time))
-    comparator.maximum_quote_age = 2
+    explorer.set_maximum_quote_age(2)
     print("After reducing maximum quote age to 2 minutes:")
-    show_best(comparator, first, second, "home", comparison_time)
+    show_best(explorer, first, second, "home", comparison_time)
 
 
 if __name__ == "__main__":
