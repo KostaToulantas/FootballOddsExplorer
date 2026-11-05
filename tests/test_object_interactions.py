@@ -7,6 +7,10 @@ import pytest
 from bookmaker import Bookmaker
 from fixture import Fixture
 from odds_comparator import OddsComparator
+from odds_exceptions import (
+    DuplicateSnapshotError, FixtureMismatchError, SnapshotNotFoundError,
+    UnknownOutcomeError,
+)
 from odds_history import OddsHistory
 from sample_odds_provider import SampleOddsProvider
 
@@ -145,12 +149,17 @@ class TestObjectInteractions:
         assert history.add_snapshot(first) is True
         assert history.add_snapshot(second) is True
 
-        for rejected in [None, wrong_fixture, first]:
-            assert history.add_snapshot(rejected) is False
+        assert history.add_snapshot(None) is False
+        for rejected, expected_error in [
+            (wrong_fixture, FixtureMismatchError), (first, DuplicateSnapshotError)
+        ]:
+            with pytest.raises(expected_error):
+                history.add_snapshot(rejected)
             assert history.snapshots == [first, second]
             assert history.latest_at(scenario["renamed_a"], AS_OF) is first
 
-        assert history.remove_snapshot(lookalike) is False
+        with pytest.raises(SnapshotNotFoundError):
+            history.remove_snapshot(lookalike)
         assert history.snapshots == [first, second]
         assert history.has_snapshot(lookalike) is False
         assert history.has_snapshot(wrong_fixture) is False
@@ -172,11 +181,11 @@ class TestObjectInteractions:
         assert history.add_snapshot(second) is True
         original_home = first.get_quote("home")
 
-        assert comparator.compare(
-            first, wrong_fixture, "home", AS_OF
-        ) is None
+        with pytest.raises(FixtureMismatchError):
+            comparator.compare(first, wrong_fixture, "home", AS_OF)
         assert history.snapshots == [first, second]
-        assert comparator.compare(first, second, "unknown", AS_OF) is None
+        with pytest.raises(UnknownOutcomeError):
+            comparator.compare(first, second, "unknown", AS_OF)
         assert history.snapshots == [first, second]
         assert comparator.compare(first, second, "home", KICKOFF) is None
         assert history.snapshots == [first, second]

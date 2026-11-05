@@ -7,6 +7,7 @@ import pytest
 from bookmaker import Bookmaker
 from fixture import Fixture
 from market_snapshot import MarketSnapshot
+from odds_exceptions import InvalidDecimalOddsError, UnknownOutcomeError
 from odds_quote import OddsQuote
 
 
@@ -36,7 +37,7 @@ class TestMarketSnapshot:
             MarketSnapshot(match, bookmaker, RECORDED_AT, None, 3, 4),
             MarketSnapshot(match, bookmaker, RECORDED_AT, 2, None, 4),
             MarketSnapshot(match, bookmaker, RECORDED_AT, 2, 3, None),
-            MarketSnapshot(match, bookmaker, RECORDED_AT, 0, 0, 0),
+            MarketSnapshot(match, bookmaker, RECORDED_AT, None, None, None),
         ]
 
     @pytest.fixture
@@ -79,11 +80,29 @@ class TestMarketSnapshot:
         assert market.get_quote(
             "away").implied_probability() == pytest.approx(0.2)
 
-    def test_unknown_outcome(self, market):
-        assert market.get_quote("unknown") is None
-        assert market.get_quote("HOME") is None
-        assert market.get_quote("") is None
-        assert market.get_quote(None) is None
+    @pytest.mark.parametrize("outcome", ["unknown", "HOME", "", None, [], {}])
+    def test_unknown_outcome_raises_without_changing_quotes(self, market, outcome):
+        original = market.quotes
+        with pytest.raises(UnknownOutcomeError) as caught:
+            market.get_quote(outcome)
+
+        assert repr(outcome) in str(caught.value)
+        assert "home, draw or away" in str(caught.value)
+        assert market.quotes == original
+        assert market.get_quote("home") is original["home"]
+        assert market.is_complete() is True
+
+    @pytest.mark.parametrize("outcome", ["home", "draw", "away"])
+    def test_invalid_price_rejects_snapshot(self, market, outcome):
+        prices = {"home": 2.2, "draw": 3.4, "away": 3.5}
+        prices[outcome] = 0.5
+        original = market.quotes
+        with pytest.raises(InvalidDecimalOddsError) as caught:
+            MarketSnapshot(market.fixture, market.bookmaker, RECORDED_AT, **prices)
+
+        assert outcome in str(caught.value)
+        assert "0.5" in str(caught.value)
+        assert market.quotes == original
 
     def test_incomplete_markets(self, incomplete_markets):
         for market in incomplete_markets:

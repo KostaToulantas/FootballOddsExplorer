@@ -7,6 +7,10 @@ import pytest
 from bookmaker import Bookmaker
 from fixture import Fixture
 from market_snapshot import MarketSnapshot
+from odds_exceptions import (
+    DuplicateSnapshotError, FixtureMismatchError, InvalidTimeRangeError,
+    SnapshotNotFoundError, UnknownOutcomeError,
+)
 from odds_history import OddsHistory
 
 
@@ -117,7 +121,14 @@ class TestOddsHistory:
     def test_duplicate_object_is_rejected(self, history_data):
         history = history_data["history"]
         original = history.snapshots
-        assert history.add_snapshot(history_data["first"]) is False
+        first = history_data["first"]
+        with pytest.raises(DuplicateSnapshotError) as caught:
+            history.add_snapshot(first)
+
+        message = str(caught.value)
+        assert "F001" in message
+        assert "Sample Sports" in message
+        assert str(first.recorded_at) in message
         assert history.snapshots == original
 
     def test_distinct_object_is_accepted(self, history_data, new_snapshot):
@@ -134,8 +145,14 @@ class TestOddsHistory:
         original = history.snapshots
         assert history.add_snapshot(None) is False
         assert history.add_snapshot("snapshot") is False
-        assert history.add_snapshot(wrong_fixture_snapshot) is False
+        with pytest.raises(FixtureMismatchError) as caught:
+            history.add_snapshot(wrong_fixture_snapshot)
+
+        message = str(caught.value)
+        assert "add snapshot to history" in message
+        assert "F001" in message and "F002" in message
         assert history.snapshots == original
+        assert not history.has_snapshot(wrong_fixture_snapshot)
 
     def test_insertion_order_and_repeated_prices(
         self, empty_history, history_data
@@ -152,15 +169,28 @@ class TestOddsHistory:
     def test_remove_snapshot(self, history_data, new_snapshot):
         history = history_data["history"]
         first = history_data["first"]
-        assert history.remove_snapshot(new_snapshot) is False
+        original = history.snapshots
+        with pytest.raises(SnapshotNotFoundError) as caught:
+            history.remove_snapshot(new_snapshot)
+
+        message = str(caught.value)
+        assert "F001" in message
+        assert "Sample Sports" in message
+        assert str(new_snapshot.recorded_at) in message
+        assert history.snapshots == original
         assert history.remove_snapshot(first) is True
         assert history.has_snapshot(first) is False
         assert history.snapshots == [
             history_data["third"], history_data["second"],
             history_data["earlier"]
         ]
-        assert history.remove_snapshot(first) is False
+        after_removal = history.snapshots
+        with pytest.raises(SnapshotNotFoundError, match="not stored"):
+            history.remove_snapshot(first)
+        assert history.snapshots == after_removal
         assert history.remove_snapshot(None) is False
+        assert history.add_snapshot(first) is True
+        assert history.snapshots == after_removal + [first]
 
     def test_external_list_changes(self, history_data, new_snapshot):
         history = history_data["history"]
@@ -264,24 +294,54 @@ class TestOddsHistory:
             RECORDED_AT + timedelta(minutes=2)
         ) == pytest.approx(0)
 
-    def test_price_change_missing_data_and_reversed_times(
+    def test_price_change_missing_data(
         self, history_data, unknown_bookmaker
     ):
         history = history_data["history"]
         bookmaker = history_data["bookmaker_a"]
         end = RECORDED_AT + timedelta(minutes=5)
         assert history.price_change(
-            bookmaker, "home", end, RECORDED_AT) is None
-        assert history.price_change(
             bookmaker, "home", RECORDED_AT - timedelta(minutes=21), end
         ) is None
-        assert history.price_change(
-            bookmaker, "unknown", RECORDED_AT, end) is None
         assert history.price_change(
             unknown_bookmaker, "home", RECORDED_AT, end
         ) is None
 
-    def test_invalid_endpoint_prices_have_no_change(
+    def test_reversed_price_change_interval_raises(self, history_data):
+        history = history_data["history"]
+        bookmaker = history_data["bookmaker_a"]
+        original = history.snapshots
+        start = RECORDED_AT + timedelta(minutes=5)
+        end = RECORDED_AT
+        with pytest.raises(InvalidTimeRangeError) as caught:
+            history.price_change(bookmaker, "home", start, end)
+
+        message = str(caught.value)
+        assert str(start) in message and str(end) in message
+        assert "start must not be after end" in message
+        assert history.snapshots == original
+        assert history.price_change(bookmaker, "home", end, start) == 0
+
+    @pytest.mark.parametrize("outcome", ["unknown", "HOME", None, []])
+    def test_unknown_price_change_outcome_raises_even_without_records(
+        self, history_data, empty_history, outcome
+    ):
+        bookmaker = history_data["bookmaker_a"]
+        for history in [history_data["history"], empty_history]:
+            original = history.snapshots
+            original_quotes = [snapshot.quotes for snapshot in original]
+            with pytest.raises(UnknownOutcomeError) as caught:
+                history.price_change(bookmaker, outcome, RECORDED_AT, RECORDED_AT)
+
+            assert repr(outcome) in str(caught.value)
+            assert "home, draw or away" in str(caught.value)
+            assert history.snapshots == original
+            assert [snapshot.quotes for snapshot in history.snapshots] == original_quotes
+        assert history_data["history"].price_change(
+            bookmaker, "home", RECORDED_AT, RECORDED_AT
+        ) == 0
+
+    def test_unavailable_endpoint_prices_have_no_change(
         self, incomplete_history, bookmaker
     ):
         middle = RECORDED_AT + timedelta(minutes=5)

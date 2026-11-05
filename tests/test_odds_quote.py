@@ -2,6 +2,7 @@
 
 import pytest
 
+from odds_exceptions import InvalidDecimalOddsError, OddsExplorerError
 from odds_quote import OddsQuote
 
 
@@ -15,8 +16,8 @@ class TestOddsQuote:
         return OddsQuote("draw", 2.5)
 
     @pytest.fixture
-    def invalid_quote(self):
-        return OddsQuote("away", 1)
+    def unavailable_quote(self):
+        return OddsQuote("away", None)
 
     @pytest.fixture
     def boundary_quote(self):
@@ -46,9 +47,26 @@ class TestOddsQuote:
         assert home_quote.validate_odds("2.5") is False
         assert home_quote.validate_odds([]) is False
 
-    def test_invalid_quote_is_unavailable(self, invalid_quote):
-        assert invalid_quote.implied_probability() is None
-        assert str(invalid_quote) == "away: unavailable"
+    @pytest.mark.parametrize("value", [
+        1, 0, -2, 0.5, float("inf"), float("-inf"), float("nan"),
+        True, False, "2.5", [], {},
+    ])
+    def test_invalid_price_raises(self, value, home_quote):
+        with pytest.raises(InvalidDecimalOddsError) as caught:
+            OddsQuote("away", value)
+
+        assert isinstance(caught.value, OddsExplorerError)
+        message = str(caught.value)
+        assert "away" in message
+        assert repr(value) in message
+        assert "finite number greater than 1" in message
+        assert home_quote.decimal_odds == 2
+        assert home_quote.implied_probability() == pytest.approx(0.5)
+
+    def test_unavailable_quote_is_allowed(self, unavailable_quote):
+        assert unavailable_quote.decimal_odds is None
+        assert unavailable_quote.implied_probability() is None
+        assert str(unavailable_quote) == "away: unavailable"
 
     def test_odds_just_above_one_are_usable(self, boundary_quote):
         assert boundary_quote.implied_probability() == pytest.approx(0.999999)

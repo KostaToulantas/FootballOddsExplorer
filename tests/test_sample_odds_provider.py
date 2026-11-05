@@ -7,6 +7,7 @@ import pytest
 from bookmaker import Bookmaker
 from fixture import Fixture
 from market_snapshot import MarketSnapshot
+from odds_exceptions import InvalidDecimalOddsError
 from odds_history import OddsHistory
 from sample_odds_provider import SampleOddsProvider
 
@@ -33,7 +34,7 @@ class TestSampleOddsProvider:
         return OddsHistory(match)
 
     @pytest.fixture
-    def invalid_providers(self):
+    def incomplete_providers(self):
         match = Fixture("F001", "Liverpool", "Arsenal", KICKOFF)
         bookmaker = Bookmaker("A", "Sample Sports")
         return [
@@ -83,9 +84,24 @@ class TestSampleOddsProvider:
         assert empty_history.add_snapshot(second) is True
         assert empty_history.snapshots == [first, second]
 
-    def test_invalid_prices(self, invalid_providers):
-        for provider in invalid_providers:
+    def test_unavailable_prices_are_allowed(self, incomplete_providers):
+        for provider in incomplete_providers:
             snapshot = provider.load_snapshot()
             assert snapshot.is_complete() is False
             assert snapshot.favourite_outcome() is None
             assert snapshot.calculate_overround() is None
+
+    @pytest.mark.parametrize("outcome", ["home", "draw", "away"])
+    def test_invalid_price_raises_when_provider_loads(self, provider_data, outcome):
+        prices = {"home": 2.2, "draw": 3.4, "away": 3.5}
+        prices[outcome] = 0.5
+        provider = SampleOddsProvider(
+            provider_data["fixture"], provider_data["bookmaker"],
+            RECORDED_AT, **prices
+        )
+        with pytest.raises(InvalidDecimalOddsError) as caught:
+            provider.load_snapshot()
+
+        assert outcome in str(caught.value)
+        assert "0.5" in str(caught.value)
+        assert provider_data["provider"].load_snapshot().is_complete() is True

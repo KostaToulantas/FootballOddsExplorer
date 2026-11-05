@@ -8,6 +8,9 @@ from bookmaker import Bookmaker
 from fixture import Fixture
 from market_snapshot import MarketSnapshot
 from odds_comparator import OddsComparator
+from odds_exceptions import (
+    FixtureMismatchError, InvalidQuoteAgeError, UnknownOutcomeError,
+)
 
 
 KICKOFF = datetime(2026, 9, 25, 19, 30, tzinfo=timezone.utc)
@@ -27,13 +30,6 @@ class TestOddsComparator:
     @pytest.fixture
     def short_age_comparator(self):
         return OddsComparator(2)
-
-    @pytest.fixture
-    def invalid_age_comparators(self):
-        return [
-            OddsComparator(-1), OddsComparator(2.5), OddsComparator(True),
-            OddsComparator(False), OddsComparator("10"), OddsComparator(None),
-        ]
 
     @pytest.fixture
     def markets(self):
@@ -104,11 +100,13 @@ class TestOddsComparator:
             markets["first"], RECORDED_AT + timedelta(microseconds=1)
         ) is False
 
-    def test_invalid_initial_limits(self, invalid_age_comparators, markets):
-        for comparator in invalid_age_comparators:
-            assert comparator.is_eligible(
-                markets["first"], RECORDED_AT) is True
-            assert comparator.is_eligible(markets["first"], AS_OF) is False
+    @pytest.mark.parametrize("value", [-1, 2.5, True, False, "10", None])
+    def test_invalid_initial_limit_raises(self, value):
+        with pytest.raises(InvalidQuoteAgeError) as caught:
+            OddsComparator(value)
+
+        assert repr(value) in str(caught.value)
+        assert "non-negative integer number of minutes" in str(caught.value)
 
     def test_changing_limit_changes_eligibility(self, comparator, markets):
         assert comparator.is_eligible(markets["first"], AS_OF) is True
@@ -118,15 +116,23 @@ class TestOddsComparator:
             markets["first"], RECORDED_AT + timedelta(minutes=2)
         ) is True
 
-    def test_invalid_limit_changes(self, short_age_comparator, markets):
-        for invalid in [-1, 2.5, True, False, "10", None]:
-            short_age_comparator.maximum_quote_age = invalid
-            assert short_age_comparator.is_eligible(
-                markets["first"], AS_OF
-            ) is False
-            assert short_age_comparator.is_eligible(
-                markets["first"], RECORDED_AT + timedelta(minutes=2)
-            ) is True
+    @pytest.mark.parametrize("value", [-1, 2.5, True, False, "10", None])
+    def test_invalid_limit_change_preserves_limit(
+        self, short_age_comparator, markets, value
+    ):
+        with pytest.raises(InvalidQuoteAgeError) as caught:
+            short_age_comparator.maximum_quote_age = value
+
+        assert repr(value) in str(caught.value)
+        assert short_age_comparator.maximum_quote_age == 2
+        assert short_age_comparator.is_eligible(markets["first"], AS_OF) is False
+        assert short_age_comparator.is_eligible(
+            markets["first"], RECORDED_AT + timedelta(minutes=2)
+        ) is True
+        short_age_comparator.maximum_quote_age = 10
+        assert short_age_comparator.compare(
+            markets["first"], markets["second"], "home", AS_OF
+        ) is markets["second"]
 
     def test_higher_price_wins(self, comparator, markets):
         first = markets["first"]
@@ -168,11 +174,34 @@ class TestOddsComparator:
         first = markets["first"]
         assert comparator.compare(None, first, "home", AS_OF) is None
         assert comparator.compare(first, "snapshot", "home", AS_OF) is None
+
+    def test_mismatched_fixtures_raise_without_changing_snapshots(
+        self, comparator, markets
+    ):
+        first = markets["first"]
+        other = markets["wrong_fixture"]
+        originals = (first.quotes, other.quotes)
+        with pytest.raises(FixtureMismatchError) as caught:
+            comparator.compare(first, other, "home", AS_OF)
+
+        message = str(caught.value)
+        assert "compare snapshots" in message
+        assert "F001" in message and "F002" in message
+        assert (first.quotes, other.quotes) == originals
         assert comparator.compare(
-            first, markets["wrong_fixture"], "home", AS_OF
-        ) is None
-        assert comparator.compare(
-            first, markets["second"], "unknown", AS_OF) is None
+            first, markets["second"], "home", AS_OF
+        ) is markets["second"]
+
+    @pytest.mark.parametrize("outcome", ["unknown", "HOME", None, []])
+    def test_unknown_comparison_outcome_raises(self, comparator, markets, outcome):
+        first, second = markets["first"], markets["second"]
+        originals = (first.quotes, second.quotes)
+        with pytest.raises(UnknownOutcomeError) as caught:
+            comparator.compare(first, second, outcome, AS_OF)
+
+        assert repr(outcome) in str(caught.value)
+        assert (first.quotes, second.quotes) == originals
+        assert comparator.compare(first, second, "home", AS_OF) is second
 
     def test_matching_ids_and_same_bookmaker(self, comparator, markets):
         first = markets["first"]
